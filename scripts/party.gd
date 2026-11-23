@@ -15,6 +15,8 @@ class Runner:
 	var boost := 0.0
 	var shield := 0.0
 	var grace := 0.0
+	var shield_shatter := 0.0
+	var shield_break_at := Vector2.ZERO
 	var jump := 0.0
 	var recovery := 0.0
 	var jump_direction := Vector2.ZERO
@@ -132,6 +134,11 @@ func tick_jumps(delta: float) -> void:
 				ant.recovery = game.JUMP_RECOVERY
 		else:
 			ant.recovery = maxf(0.0, ant.recovery - delta)
+
+
+func tick_shield_effects(delta: float) -> void:
+	for ant: Runner in runners.values():
+		ant.shield_shatter = maxf(0.0, ant.shield_shatter - delta)
 
 
 func _move_runner(ant: Runner, delta: float) -> void:
@@ -286,6 +293,8 @@ func _hit(ant: Runner, sound: StringName) -> bool:
 	if ant.shield > 0.0:
 		ant.grace = minf(game.SHIELD_GRACE, ant.shield)
 		ant.shield = 0.0
+		ant.shield_shatter = game.SHIELD_SHATTER_TIME
+		ant.shield_break_at = ant.at
 		_play(&"shield")
 		return false
 	ant.zombie = true
@@ -305,7 +314,11 @@ func _play(sound: StringName) -> void:
 func snapshot() -> Array:
 	var runner_data := []
 	for ant: Runner in runners.values():
-		runner_data.append([ant.id, ant.at, ant.angle, ant.gait, ant.zombie, ant.rise, ant.jump, ant.recovery, ant.boost, ant.shield, ant.grace])
+		var state := [ant.id, ant.at, ant.angle, ant.gait, ant.zombie, ant.rise, ant.jump, ant.recovery, ant.boost, ant.shield, ant.grace]
+		if ant.shield_shatter > 0.0:
+			state.append(ant.shield_shatter)
+			state.append(ant.shield_break_at)
+		runner_data.append(state)
 	var shoe_data := []
 	for shoe: Shoe in shoes.values():
 		shoe_data.append([shoe.id, shoe.step, shoe.at, shoe.remaining, shoe.warning, shoe.landed,
@@ -328,6 +341,9 @@ func apply_snapshot(data: Array) -> void:
 		ant.boost = item[8]
 		ant.shield = item[9]
 		ant.grace = item[10]
+		ant.shield_shatter = item[11] if item.size() >= 13 else 0.0
+		if ant.shield_shatter > 0.0:
+			ant.shield_break_at = item[12]
 	for item: Array in data[1]:
 		var shoe: Shoe = shoes.get(item[0])
 		if shoe == null:

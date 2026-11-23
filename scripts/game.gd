@@ -26,6 +26,7 @@ const PICKUP_RADIUS := 29.0
 const PICKUP_INTERVAL := 3.5
 const SHIELD_DURATION := 15.0
 const SHIELD_GRACE := 1.0
+const SHIELD_SHATTER_TIME := 0.52
 const LOSS_DELAY := 0.78
 const METEOR_RADIUS := 92.0
 const METEOR_WARNING := 1.45
@@ -118,6 +119,8 @@ var power_position := Vector2.ZERO
 var boost_time := 0.0
 var shield_time := 0.0
 var shield_grace := 0.0
+var shield_shatter := 0.0
+var shield_break_at := Vector2.ZERO
 var stomp_blocked := false
 var stomp_evaded := false
 var jump_time := 0.0
@@ -299,6 +302,7 @@ func _start_run() -> void:
 	boost_time = 0.0
 	shield_time = 0.0
 	shield_grace = 0.0
+	shield_shatter = 0.0
 	stomp_blocked = false
 	stomp_evaded = false
 	jump_time = 0.0
@@ -330,6 +334,11 @@ func _start_run() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if mode != Mode.PAUSED:
+		if lan.role == Lan.Role.SOLO:
+			shield_shatter = maxf(0.0, shield_shatter - delta)
+		else:
+			party.tick_shield_effects(delta)
 	if lan.role == Lan.Role.GUEST:
 		clock += delta
 		if mode == Mode.RUNNING and party.runners.has(lan.local_id()):
@@ -728,6 +737,8 @@ func _blocks_hit() -> bool:
 		return false
 	shield_grace = minf(SHIELD_GRACE, shield_time)
 	shield_time = 0.0
+	shield_shatter = SHIELD_SHATTER_TIME
+	shield_break_at = ant_position
 	_sound.play_cue(&"shield")
 	return true
 

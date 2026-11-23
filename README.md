@@ -46,7 +46,7 @@ LAN play uses UDP port 24567 on the host. If Windows Firewall asks, allow the ga
 
 ## Power-ups
 
-Run over a pickup to collect it. The yellow lightning bolt speeds up the ant for five seconds. The blue shield expires after 15 seconds or absorbs one hit from the shoe, spider, or a meteor. After absorbing a hit, it briefly protects the ant while it gets away. More pickups appear after you collect one.
+Run over a pickup to collect it. The yellow lightning bolt speeds up the ant for five seconds. The blue shield fades out when its 15 seconds are up. It shatters if it absorbs a stomp, a bite, or a meteor impact, and briefly protects the ant while it gets away. More pickups appear after you collect one.
 
 Press **Space** to jump in the direction you're moving, or straight ahead when standing still. The ant can dodge the shoe and spider while airborne. After landing, it moves at 60% speed for 1.7 seconds and can jump again once it recovers.
 

@@ -6,6 +6,8 @@ const PLAYER_COLORS := [Color("f9c77f"), Color("a9deff"), Color("f1b4d8"), Color
 const CREAM := Color("ffefba")
 const SPEED_COLOR := Color("ffe28a")
 const SHIELD_COLOR := Color("aeeefb")
+const SHIELD_FADE_TIME := 0.75
+const SHIELD_FLASH := Color("e7fcff")
 const QUICK_COLOR := Color("ffae82")
 const WIDE_COLOR := Color("e5c6ff")
 const CRATER_COLOR := Color("e9c878")
@@ -26,6 +28,7 @@ const SPIDER_INK := Color("302737")
 var _sole := PackedVector2Array(Game.SOLE)
 var _crater_rim := Game.crater_rim()
 var _crater_floor := _make_crater_floor()
+var _shield_shard := PackedVector2Array([Vector2(-6, -3), Vector2(9, -1), Vector2(-1, 6)])
 
 
 func _draw() -> void:
@@ -48,6 +51,7 @@ func _draw() -> void:
 			angle = _game.rush_angles[index]
 			lunge = Vector2.from_angle(angle) * (bite * 12.0)
 		_draw_spider(at + lunge, angle, _game.spider_gait, bite)
+		_draw_shield_shatter(_game.shield_break_at, _game.shield_shatter)
 		return
 
 	if _game.step == Game.Step.WARNING and _game.loss != Game.Loss.METEOR:
@@ -69,7 +73,6 @@ func _draw() -> void:
 		_draw_shoe_pickup()
 	var squashed := _game.loss == Game.Loss.SHOE or _game.loss == Game.Loss.METEOR
 	if _game.loss != Game.Loss.SHOE or _game.impact_age > 0.56:
-		_draw_active_power()
 		var body_scale := Vector2(1.15, 0.42) if squashed else Vector2.ONE
 		var draw_position := _game.ant_position
 		if _game.jump_time > 0.0:
@@ -77,7 +80,9 @@ func _draw() -> void:
 			_ellipse(self, draw_position, Vector2(24, 13), Color(0.14, 0.20, 0.12, 0.43))
 			draw_position.y -= height
 			body_scale *= 1.0 + height * 0.005
+		_draw_active_power(draw_position)
 		draw_ant(self, draw_position, _game.ant_angle, body_scale, _game.gait, _game.clock, squashed)
+	_draw_shield_shatter(_game.shield_break_at, _game.shield_shatter)
 
 
 func _draw_party() -> void:
@@ -121,6 +126,8 @@ func _draw_party() -> void:
 		_draw_shoe_pickup()
 	for ant: Game.Party.Runner in _game.party.runners.values():
 		_draw_runner(ant, own_id == ant.id)
+	for ant: Game.Party.Runner in _game.party.runners.values():
+		_draw_shield_shatter(ant.shield_break_at, ant.shield_shatter)
 
 
 func _draw_runner(ant: Game.Party.Runner, is_local: bool) -> void:
@@ -133,8 +140,7 @@ func _draw_runner(ant: Game.Party.Runner, is_local: bool) -> void:
 		size *= 1.0 + height * 0.005
 	elif ant.rise > 0.0:
 		size.y = lerpf(1.0, 0.5, ant.rise / Game.Party.RISE_TIME)
-	if ant.shield > 0.0 or ant.grace > 0.0:
-		draw_circle(at, 32.0, SHIELD_COLOR, false, 2.5, true)
+	_draw_shield(at, ant.shield, ant.grace)
 	if ant.boost > 0.0:
 		var behind := Vector2.from_angle(ant.angle) * -1.0
 		draw_line(at + behind * 35.0, at + behind * 47.0, SPEED_COLOR, 2.5, true)
@@ -375,20 +381,45 @@ func _draw_crater(at: Vector2, scale_factor: float, remaining: float) -> void:
 	draw_set_transform(Vector2.ZERO)
 
 
-func _draw_active_power() -> void:
+func _draw_active_power(at: Vector2) -> void:
 	if _game.boost_time > 0.0:
 		var behind := Vector2.from_angle(_game.ant_angle) * -1.0
 		for index in 3:
-			var start := _game.ant_position + behind * (30.0 + index * 8.0) + behind.orthogonal() * (index - 1) * 8.0
+			var start := at + behind * (30.0 + index * 8.0) + behind.orthogonal() * (index - 1) * 8.0
 			draw_line(start, start + behind * 11.0, SPEED_COLOR, 2.5, true)
-	if _game.shield_time > 0.0 or _game.shield_grace > 0.0:
-		var radius := 34.0
-		var tint := SHIELD_COLOR
-		if _game.shield_time <= 0.0:
-			radius += (1.0 - _game.shield_grace / Game.SHIELD_GRACE) * 17.0
-			tint.a = _game.shield_grace / Game.SHIELD_GRACE
-		draw_circle(_game.ant_position, radius, Color(tint, tint.a * 0.14), true, -1.0, true)
-		draw_circle(_game.ant_position, radius, tint, false, 2.5, true)
+	_draw_shield(at, _game.shield_time, _game.shield_grace)
+
+
+func _draw_shield(at: Vector2, time: float, grace: float) -> void:
+	if time > 0.0:
+		var opacity := smoothstep(0.0, SHIELD_FADE_TIME, time)
+		draw_circle(at, 34.0, Color(SHIELD_COLOR, opacity * 0.14), true, -1.0, true)
+		draw_circle(at, 34.0, Color(SHIELD_COLOR, opacity), false, 2.5, true)
+		draw_arc(at, 32.0, -2.85, -1.7, 10, Color(SHIELD_FLASH, opacity * 0.72), 2.0, true)
+	elif grace > 0.0:
+		draw_circle(at, 26.0, Color(SHIELD_COLOR, 0.11 * grace / Game.SHIELD_GRACE), true, -1.0, true)
+
+
+func _draw_shield_shatter(at: Vector2, remaining: float) -> void:
+	if remaining <= 0.0:
+		return
+	var progress := clampf(1.0 - remaining / Game.SHIELD_SHATTER_TIME, 0.0, 1.0)
+	var flash := 1.0 - smoothstep(0.0, 0.30, progress)
+	if flash > 0.0:
+		draw_circle(at, 34.0 + 27.0 * progress, Color(SHIELD_FLASH, flash * 0.20), true, -1.0, true)
+		draw_circle(at, 35.0 + 60.0 * progress, Color(SHIELD_FLASH, flash * 0.92), false, 3.0, true)
+	var travel := 1.0 - pow(1.0 - progress, 2.3)
+	var opacity := 1.0 - smoothstep(0.23, 1.0, progress)
+	for index in 12:
+		var angle := TAU * float(index) / 12.0 + sin(index * 4.7) * 0.16
+		var direction := Vector2.from_angle(angle)
+		var point := at + direction * (31.0 + (34.0 + float(index % 4) * 12.0) * travel)
+		var size := (0.72 + float(index % 3) * 0.23) * lerpf(1.0, 0.6, progress)
+		var spin := progress * (2.9 if index % 2 == 0 else -2.6)
+		draw_set_transform(point, angle + spin, Vector2.ONE * size)
+		draw_colored_polygon(_shield_shard, Color(SHIELD_COLOR, opacity * 0.70))
+		draw_line(_shield_shard[0], _shield_shard[1], Color(SHIELD_FLASH, opacity), 1.7, true)
+	draw_set_transform(Vector2.ZERO)
 
 
 func _draw_stomp() -> void:
