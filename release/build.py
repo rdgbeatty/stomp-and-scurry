@@ -55,7 +55,12 @@ def stage_bootstrap(stage, config, app=APP):
         if path.is_file() and path.suffix in {".gd", ".tscn", ".bin", ".godot", ".cfg"}:
             shutil.copyfile(path, stage / path.name)
     project = stage / "project.godot"
-    project.write_text(project.read_text().replace("res://launcher.tscn", "res://pack_launcher.tscn"))
+    settings = project.read_text().replace("res://launcher.tscn", "res://pack_launcher.tscn")
+    settings = settings.replace("viewport_width=560", "viewport_width=1152")
+    settings = settings.replace("viewport_height=330", "viewport_height=720")
+    settings = settings.replace("window/size/resizable=false", "window/stretch/aspect=\"keep\"")
+    settings = settings.replace("[rendering]\n", "[rendering]\nanti_aliasing/quality/msaa_2d=2\n")
+    project.write_text(settings)
     preset = stage / "export_presets.cfg"
     preset.write_text(preset.read_text().replace(
         'include_filter="restart_helper.bin"', 'include_filter="restart_helper.bin,pack-feed.json"'

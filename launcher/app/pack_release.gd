@@ -1,7 +1,7 @@
 extends RefCounted
 
 const Updater = preload("res://updater.gd")
-const RUNTIME_VERSION := 1
+const RUNTIME_VERSION := 2
 const PACK_ABI := 1
 const EXE := "StompAndScurry.exe"
 const PACK := "StompAndScurry.pck"
@@ -87,7 +87,7 @@ func cached_offers() -> Array[Dictionary]:
 
 
 static func remember(offer: Dictionary) -> void:
-	# The manifest is recorded only after the game acknowledges startup.
+	# Remember the pack only after its game scene starts successfully.
 	var path := ProjectSettings.globalize_path(CACHE.path_join(str(int(offer.sequence)) + "-" + offer.pack_sha256 + ".json"))
 	if FileAccess.file_exists(path):
 		return

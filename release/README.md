@@ -1,6 +1,8 @@
 # Stomp & Scurry pack releases
 
-Players keep one `StompAndScurry.exe` in a folder they can write to. On **Play solo** or **Host LAN lobby**, it checks the release feed and downloads the latest compatible game pack if needed. On **Join LAN lobby**, it checks the host's signed manifest and loads that exact pack. A working pack is cached for offline play and fallback. The launcher minimizes and keeps the LAN download server running while the game is open.
+Players keep one `StompAndScurry.exe` in a folder they can write to. The game menu has **Play solo**, **Host LAN**, **Join LAN**, and the saved player name and host address. Update status appears in that menu. A verified pack opens in the same window, and the game serves it to other players while hosting. **Menu** in solo play and **Leave** in LAN play bring you back to the front screen.
+
+Solo and host play check the release feed for a game pack. Join uses the exact pack in the host's signed manifest. The app caches working packs for offline play and fallback. If switching to a different pack after one has loaded, the app briefly reopens and continues the selected action automatically.
 
 Each release ships `StompAndScurry.exe`, `StompAndScurry.pck`, `release.json`, and the license notices. `release.json` contains a signed payload with the release tag, increasing sequence, runtime version, pack ABI, and both SHA-256 digests. The executable embeds only the public key and feed address. Publish all of the assets before marking the release latest.
 

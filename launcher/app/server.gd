@@ -21,6 +21,7 @@ var status_file := ""
 var launcher_path := ""
 var launcher_hash := ""
 var pack_manifest := ""
+var pack_ready := false
 
 
 func start(game: String, build: String, marker: String, launcher: String) -> Error:
@@ -32,10 +33,9 @@ func start(game: String, build: String, marker: String, launcher: String) -> Err
 	return listener.listen(PORT, "0.0.0.0")
 
 
-func start_pack(path: String, digest: String, marker: String, manifest: String) -> Error:
+func start_pack(path: String, digest: String, manifest: String) -> Error:
 	game_path = path
 	build_id = digest
-	status_file = marker
 	pack_manifest = manifest
 	return listener.listen(PORT, "0.0.0.0")
 
@@ -106,8 +106,10 @@ func _respond(client: Client, request: PackedStringArray) -> void:
 	var route := request[1]
 	var download := "/game/" + build_id + (".exe" if pack_manifest.is_empty() else ".pck")
 	if route == "/session.json":
-		var marker := FileAccess.get_file_as_string(status_file) if FileAccess.file_exists(status_file) else ""
-		var session := {"build": build_id, "download": download, "ready": marker == "ready"}
+		var ready := pack_ready
+		if pack_manifest.is_empty() and FileAccess.file_exists(status_file):
+			ready = FileAccess.get_file_as_string(status_file) == "ready"
+		var session := {"build": build_id, "download": download, "ready": ready}
 		if not pack_manifest.is_empty():
 			session["manifest"] = pack_manifest
 		elif Updater.valid_hash(launcher_hash):

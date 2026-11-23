@@ -4,7 +4,7 @@ You’re an ant in a grassy backyard. Outrun the hungry spider and scurry out of
 
 The Stomp & Scurry source is licensed under GPL-3.0-or-later. See [LICENSE](LICENSE) and [Godot's third-party notices](GODOT-NOTICES.txt).
 
-The pack edition uses one `StompAndScurry.exe` for solo play, hosting, and joining. It downloads verified game packs as needed. See the [release guide](release/README.md) for the pack edition and publishing steps.
+The pack edition uses one `StompAndScurry.exe`. Play solo, host, or join from the game menu, with your saved player name and host address. Verified game updates download from the menu and play opens in the same window. See the [release guide](release/README.md) for publishing steps.
 
 ## Play
 

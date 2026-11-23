@@ -1,12 +1,20 @@
 extends "res://launcher.gd"
 
 const PackRelease = preload("res://pack_release.gd")
+const FrontMenu = preload("res://front_menu.gd")
+const MAIN_MENU_HINT := "Play solo, host a LAN lobby, or enter a host's address to join."
+const PACK_FAILED := "The game pack did not start."
+const RESUME_DIR := "user://pack-resume"
 
 var _releases := PackRelease.new()
+var _front: FrontMenu
 var _solo: Button
-var _game_pid := -1
-var _starting := false
+var _menu: Button
+var _game: Node2D
+var _mounted_digest := ""
+var _failed_packs: Dictionary = {}
 var _skip_runtime_update := false
+var _muted := false
 
 
 func _ready() -> void:
@@ -14,19 +22,40 @@ func _ready() -> void:
 	if OS.get_cmdline_user_args().has("--game-pack"):
 		get_tree().quit(1)
 		return
-	super._ready()
-	_solo = Button.new()
-	_solo.text = "Play solo"
-	_solo.custom_minimum_size = Vector2(175, 40)
-	_solo.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	get_window().title = "Stomp & Scurry"
+	_front = FrontMenu.new()
+	add_child(_front)
+	_solo = _front.solo
+	_host_button = _front.host
+	_join_button = _front.join
+	_player_name = _front.player_name
+	_address = _front.address
+	_status = _front.status
+	_host_button.pressed.connect(_host)
+	_join_button.pressed.connect(_join)
+	_address.text_submitted.connect(func(_value):
+		if not _join_button.disabled:
+			_join()
+	)
+	if FileAccess.file_exists(PLAYER_NAME_FILE):
+		_player_name.text = FileAccess.get_file_as_string(PLAYER_NAME_FILE).strip_edges().left(_player_name.max_length)
+	_player_name.text_changed.connect(_save_player_name)
+	if FileAccess.file_exists("user://host.txt"):
+		_address.text = FileAccess.get_file_as_string("user://host.txt").strip_edges()
 	_solo.pressed.connect(_play_or_host.bind("solo"))
-	var box := _status.get_parent()
-	box.add_child(_solo)
-	box.move_child(_solo, 2)
-	_status.text = "Play solo, host a LAN lobby, or enter a host's address to join."
+	_menu = FrontMenu.make_button(Rect2(856, 31, 78, 39), "Menu")
+	_menu.hide()
+	_menu.pressed.connect(_return_to_menu)
+	add_child(_menu)
+	_http = HTTPRequest.new()
+	add_child(_http)
+	_status.text = MAIN_MENU_HINT
 	if not _releases.configured:
 		_status.text = "This build has no release feed configured."
 		_busy()
+	else:
+		_solo.grab_focus()
+		_resume_update.call_deferred()
 
 
 func _host() -> void:
@@ -59,18 +88,12 @@ func _resume_update() -> void:
 	elif args.size() == 1 and args[0] == "--launcher-update-failed":
 		_skip_runtime_update = true
 		_finish("The previous executable was restored. You can still play a compatible pack.")
+	elif args.size() == 2 and args[0] == "--resume-pack":
+		_resume_pack(args[1])
 
 
 func _process(_delta: float) -> void:
-	if _starting:
-		return
-	if _game_pid > 0 and not OS.is_process_running(_game_pid):
-		_game_pid = -1
-		_stop_host()
-		if DisplayServer.get_name() != "headless":
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-		_finish("Play solo, host, or join another lobby.")
-	elif _server != null:
+	if _server != null:
 		_server.poll()
 
 
@@ -99,16 +122,17 @@ func _play_or_host(mode: String) -> void:
 	var tried: Dictionary = {}
 	for offer in candidates:
 		var digest: String = offer.pack_sha256
-		if tried.has(digest) or not PackRelease.compatible(offer):
+		if tried.has(digest) or _failed_packs.has(digest) or not PackRelease.compatible(offer):
 			continue
 		tried[digest] = true
+		if not _matches(PackRelease.path_for(offer), digest):
+			_status.text = "Downloading game " + offer.tag + "…"
 		if await _fetch_pack(offer, "", local_dir.path_join(PackRelease.PACK)):
 			_status.text = "Opening " + offer.tag + "…"
-			var problem := await _run_pack(offer, mode)
+			var problem := _run_pack(offer, mode)
 			if problem.is_empty():
-				PackRelease.remember(offer)
 				return
-			if problem != "The game pack did not start.":
+			if problem != PACK_FAILED:
 				_finish(problem)
 				return
 	_finish("No compatible game pack could start. Check the update connection and try again.")
@@ -147,7 +171,7 @@ func _join(allow_launcher_update := true) -> void:
 	if not await _fetch_pack(offer, base + session.download):
 		_finish("Couldn't get a verified copy of the host's game pack.")
 		return
-	var problem := await _run_pack(offer, "join", address)
+	var problem := _run_pack(offer, "join", address)
 	if not problem.is_empty():
 		_finish(problem)
 
@@ -192,44 +216,146 @@ func _update_runtime(offer: Dictionary, action: String) -> bool:
 
 func _run_pack(offer: Dictionary, mode: String, value := "-") -> String:
 	var path := PackRelease.path_for(offer)
-	if not _matches(path, offer.pack_sha256):
-		return "The game pack did not start."
-	_marker = ProjectSettings.globalize_path("user://" + Updater.nonce() + ".ready")
+	var digest: String = offer.pack_sha256
+	if _failed_packs.has(digest) or not _matches(path, digest):
+		return PACK_FAILED
+	# Godot keeps mounted packs and their loaded scripts for the life of the process.
+	if not _mounted_digest.is_empty() and _mounted_digest != digest:
+		return "" if _restart_into_pack(offer, mode, value) else "Couldn't reopen the game with the selected pack."
+	if _mounted_digest.is_empty():
+		if not ProjectSettings.load_resource_pack(path, false):
+			_failed_packs[digest] = true
+			return PACK_FAILED
+		_mounted_digest = digest
+	var scene := load("res://game.tscn") as PackedScene
+	var game := scene.instantiate() if scene != null else null
+	if not game is Node2D or not game.has_method("primary_action"):
+		if game != null:
+			game.free()
+		_failed_packs[digest] = true
+		return PACK_FAILED
 	if mode == "host":
 		_server = HostServer.new()
-		if _server.start_pack(path, offer.pack_sha256, _marker, offer.envelope) != OK:
+		if _server.start_pack(path, digest, offer.envelope) != OK:
+			game.free()
 			_stop_host()
 			return "Port 8000 is busy. Close the other download server or game host."
-	var player_name := _player_name.text.strip_edges()
-	var encoded := "-" if player_name.is_empty() else Marshalls.utf8_to_base64(player_name)
-	var args := PackedStringArray()
-	if DisplayServer.get_name() == "headless":
-		args.append("--headless")
-	args.append_array(["--main-pack", path, "--", "--game-pack", offer.pack_sha256, _marker, mode, value, encoded])
-	_starting = true
-	_game_pid = OS.create_process(OS.get_executable_path(), args)
-	var until := Time.get_ticks_msec() + 12000
-	while _game_pid > 0 and OS.is_process_running(_game_pid) and Time.get_ticks_msec() < until:
-		if _server != null:
-			_server.poll()
-		if FileAccess.file_exists(_marker):
-			var marker := FileAccess.get_file_as_string(_marker)
-			if marker == "ready":
-				_starting = false
-				if DisplayServer.get_name() != "headless":
-					DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
-				return ""
-			if not marker.is_empty():
-				_close_failed_game()
-				return marker
-		await get_tree().create_timer(0.1).timeout
-	_close_failed_game()
-	return "The game pack did not start."
+	_import_solo_score()
+	add_child(game)
+	move_child(game, 0)
+	if _muted:
+		game.call("toggle_sound")
+	var network: Node = game.get("lan")
+	if network == null or not network.has_method("host"):
+		game.free()
+		_stop_host()
+		_failed_packs[digest] = true
+		return PACK_FAILED
+	network.set("pack_build", digest)
+	network.set("local_player_name", _player_name.text.strip_escapes().strip_edges())
+	match mode:
+		"host":
+			network.call("host")
+			_server.pack_ready = network.get("role") != 0
+		"join":
+			network.call("join", value)
+		"solo":
+			game.call("primary_action")
+	if mode != "solo" and network.get("role") == 0:
+		var message: String = network.get("status")
+		game.free()
+		_stop_host()
+		return message if not message.is_empty() else "Couldn't open the LAN lobby."
+	_game = game
+	if mode == "solo":
+		_menu.show()
+	else:
+		network.connect("changed", _network_changed.bind(network))
+	# Joining an older host should leave the default offline pack selection alone.
+	if mode != "join":
+		PackRelease.remember(offer)
+	_front.hide()
+	return ""
 
 
-func _close_failed_game() -> void:
-	if _game_pid > 0 and OS.is_process_running(_game_pid):
-		OS.kill(_game_pid)
-	_game_pid = -1
-	_starting = false
+func _network_changed(network: Node) -> void:
+	if network.get("role") == 0:
+		_return_to_menu.call_deferred(network.get("status"))
+
+
+func _return_to_menu(message := "") -> void:
+	if is_instance_valid(_game):
+		_muted = _game.call("sound_is_muted")
+		for player: AudioStreamPlayer in _game.find_children("*", "AudioStreamPlayer", true, false):
+			player.stop()
+		_game.hide()
+		_game.process_mode = Node.PROCESS_MODE_DISABLED
+		_game.queue_free()
+		_game = null
 	_stop_host()
+	_menu.hide()
+	_front.show()
+	_finish(message if not message.is_empty() else MAIN_MENU_HINT)
+	_solo.grab_focus()
+
+
+func _restart_into_pack(offer: Dictionary, mode: String, value: String) -> bool:
+	var token := Updater.nonce()
+	var directory := ProjectSettings.globalize_path(RESUME_DIR)
+	if DirAccess.make_dir_recursive_absolute(directory) != OK:
+		return false
+	var path := directory.path_join(token + ".json")
+	var ticket := FileAccess.open(path, FileAccess.WRITE)
+	if ticket == null:
+		return false
+	ticket.store_string(JSON.stringify({"manifest": offer.envelope, "mode": mode, "value": value, "failed": _failed_packs.keys()}))
+	ticket.close()
+	var args := PackedStringArray(["--", "--resume-pack", token])
+	if DisplayServer.get_name() == "headless":
+		args.insert(0, "--headless")
+	if OS.create_process(OS.get_executable_path(), args) <= 0:
+		_remove(path)
+		return false
+	get_tree().quit()
+	return true
+
+
+func _resume_pack(token: String) -> void:
+	if token.length() != 24 or token.to_lower() != token or not token.is_valid_hex_number(false):
+		return
+	var path := ProjectSettings.globalize_path(RESUME_DIR.path_join(token + ".json"))
+	if not FileAccess.file_exists(path):
+		return
+	var ticket: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	_remove(path)
+	if not ticket is Dictionary or not ticket.get("manifest") is String or not ticket.get("value") is String:
+		return
+	var mode: Variant = ticket.get("mode")
+	if not mode in ["solo", "host", "join"]:
+		return
+	if mode == "join" and (not ticket.value.is_valid_ip_address() or ticket.value.contains(":")):
+		return
+	var offer := _releases.verify(ticket.manifest)
+	if offer.is_empty() or not PackRelease.compatible(offer):
+		_finish("Couldn't reopen the selected game pack.")
+		return
+	if ticket.get("failed") is Array:
+		for digest in ticket.failed:
+			if digest is String and Updater.valid_hash(digest):
+				_failed_packs[digest] = true
+	_busy()
+	_status.text = "Opening " + offer.tag + "…"
+	await get_tree().process_frame
+	var problem := _run_pack(offer, mode, ticket.value)
+	if problem == PACK_FAILED and mode != "join":
+		_failed_packs[offer.pack_sha256] = true
+		_play_or_host(mode)
+	elif not problem.is_empty():
+		_finish(problem)
+
+
+func _import_solo_score() -> void:
+	var current := ProjectSettings.globalize_path("user://scores.cfg")
+	var old := current.get_base_dir().get_base_dir().path_join("Stomp & Scurry/scores.cfg")
+	if not FileAccess.file_exists(current) and FileAccess.file_exists(old):
+		DirAccess.copy_absolute(old, current)
