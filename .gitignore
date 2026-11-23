@@ -1,0 +1,6 @@
+.godot/
+/build/
+/.agents/
+/.codex/
+/.aws/
+__pycache__/

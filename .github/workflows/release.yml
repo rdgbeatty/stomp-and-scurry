@@ -1,0 +1,128 @@
+name: Release Stomp & Scurry
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Git tag (for example v0.1.0)
+        required: true
+        type: string
+      sequence:
+        description: Increasing update sequence (start at 1)
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stomp-stable-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_SEQUENCE: ${{ inputs.sequence }}
+      PYTHONUTF8: "1"
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select tagged source
+        id: source
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -cnotmatch '^v[0-9]{1,8}\.[0-9]{1,8}\.[0-9]{1,8}$') {
+            throw 'Use a tag such as v0.1.0.'
+          }
+          $sequence = 0
+          if (-not [int]::TryParse($env:RELEASE_SEQUENCE, [ref]$sequence) -or $sequence -lt 1) {
+            throw 'Use a positive integer update sequence.'
+          }
+          $tagRef = 'refs/tags/{0}^{{commit}}' -f $env:RELEASE_TAG
+          $sourceCommit = git rev-parse --verify $tagRef
+          if ($LASTEXITCODE -ne 0) { throw 'Push the release tag before running this workflow.' }
+          git merge-base --is-ancestor $sourceCommit HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'The release tag must be on the default branch history.' }
+          git worktree add --detach (Join-Path $env:RUNNER_TEMP 'stomp-source') $sourceCommit
+          if ($LASTEXITCODE -ne 0) { throw 'Could not check out the release tag.' }
+          "commit=$sourceCommit" >> $env:GITHUB_OUTPUT
+
+      - name: Fetch the latest stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          python release/actions.py previous --repo $env:GITHUB_REPOSITORY (Join-Path $env:RUNNER_TEMP 'stomp-previous')
+
+      - name: Install verified Godot tools
+        shell: pwsh
+        run: ./build-windows.ps1 -PrepareToolsOnly
+
+      - name: Export and check Windows build
+        shell: pwsh
+        run: |
+          if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
+            $env:PATH += ';C:\Program Files\Git\usr\bin'
+          }
+          $editor = (Resolve-Path '.godot/build-tools/4.3-stable/Godot_v4.3-stable_win64_console.exe').Path
+          $previous = Join-Path $env:RUNNER_TEMP 'stomp-previous'
+          $reuse = @()
+          if (Test-Path $previous) { $reuse = @('--previous', $previous) }
+          python release/build.py --godot $editor --source (Join-Path $env:RUNNER_TEMP 'stomp-source') --public-key release/public-key.pem --github $env:GITHUB_REPOSITORY --tag $env:RELEASE_TAG --sequence $env:RELEASE_SEQUENCE --output build/unsigned --verify-windows @reuse
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unsigned-windows-release
+          path: build/unsigned/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_SEQUENCE: ${{ inputs.sequence }}
+      SOURCE_COMMIT: ${{ needs.build.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: unsigned-windows-release
+          path: build/unsigned
+
+      - name: Sign the update manifest
+        env:
+          STOMP_RELEASE_PRIVATE_KEY: ${{ secrets.STOMP_RELEASE_PRIVATE_KEY }}
+        run: python3 release/actions.py sign --tag "$RELEASE_TAG" --sequence "$RELEASE_SEQUENCE" build/unsigned
+
+      - name: Verify tag and publish stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          refs="$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"
+          commit="$(printf '%s\n' "$refs" | tail -n 1 | cut -f 1)"
+          if [[ "$commit" != "$SOURCE_COMMIT" ]]; then
+            echo 'The release tag moved after the build. Run the workflow again.'
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest --generate-notes \
+            build/unsigned/StompAndScurry.exe build/unsigned/StompAndScurry.pck \
+            build/unsigned/release.json build/unsigned/bootstrap-build.json \
+            build/unsigned/LICENSE build/unsigned/GODOT-NOTICES.txt
