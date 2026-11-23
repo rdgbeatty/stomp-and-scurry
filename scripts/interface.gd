@@ -206,7 +206,7 @@ func _shoe_power_name(kind: Game.ShoePower) -> String:
 		Game.ShoePower.WIDE:
 			return "WIDE STOMP"
 		_:
-			return "AREA DENIAL"
+			return "CRATER STOMP"
 
 
 func _draw_counter(at: Vector2, title: String, number: int, color: Color) -> void:

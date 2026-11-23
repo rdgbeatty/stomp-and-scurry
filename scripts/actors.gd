@@ -8,13 +8,24 @@ const SPEED_COLOR := Color("ffe28a")
 const SHIELD_COLOR := Color("aeeefb")
 const QUICK_COLOR := Color("ffae82")
 const WIDE_COLOR := Color("e5c6ff")
-const DENIAL_COLOR := Color("d8f495")
+const CRATER_COLOR := Color("e9c878")
+const CRATER_FLOOR := Color("61402c")
+const CRATER_WALL_DARK := Color("704931")
+const CRATER_WALL_LIGHT := Color("b97d45")
+const CRATER_EDGE_DARK := Color("522e20")
+const CRATER_EDGE_LIGHT := Color("efb76b")
+const CRATER_STONES := [
+	Vector2(-18, -66), Vector2(14, -54), Vector2(20, -26), Vector2(-17, -19),
+	Vector2(10, 12), Vector2(-16, 37), Vector2(13, 57), Vector2(-9, 81),
+]
 const WIND_COLOR := Color("c4f5e8")
 const SLIME_COLOR := Color("86ecde")
 const SPIDER_INK := Color("302737")
 
 @onready var _game: Game = get_parent().get_parent()
 var _sole := PackedVector2Array(Game.SOLE)
+var _crater_rim := Game.crater_rim()
+var _crater_floor := _make_crater_floor()
 
 
 func _draw() -> void:
@@ -41,7 +52,7 @@ func _draw() -> void:
 
 	if _game.step == Game.Step.WARNING and _game.loss != Game.Loss.METEOR:
 		var progress := 1.0 - _game.remaining / _game.warning_duration
-		var accent := DENIAL_COLOR if _game.stomp_power == Game.ShoePower.DENIAL else CREAM
+		var accent := CRATER_COLOR if _game.stomp_power == Game.ShoePower.CRATER else CREAM
 		_draw_shadow(_game.shadow_position, _game.shoe_angle, progress, _game.stomp_scale, accent)
 	if _game.loss != Game.Loss.METEOR:
 		_draw_stomp()
@@ -72,14 +83,18 @@ func _draw() -> void:
 func _draw_party() -> void:
 	var own_id := _game.lan.local_id()
 	for shoe: Game.Party.Shoe in _game.party.shoes.values():
-		if shoe.terrain_time > 0.0:
-			_draw_denial_terrain(shoe.terrain_at, shoe.terrain_scale, shoe.terrain_time)
+		if shoe.crater_time > 0.0:
+			_draw_crater(shoe.crater_at, shoe.crater_scale, shoe.crater_time)
 	for shoe: Game.Party.Shoe in _game.party.shoes.values():
 		var color: Color = PLAYER_COLORS[_game.lan.slot(shoe.id) - 1]
 		if shoe.step == Game.Step.WARNING:
 			var progress := 1.0 - shoe.remaining / shoe.warning
-			var glow := DENIAL_COLOR if shoe.power == Game.ShoePower.DENIAL else color
+			var glow := CRATER_COLOR if shoe.power == Game.ShoePower.CRATER else color
 			_draw_shadow(shoe.at, 0.0, progress, shoe.scale_factor, glow)
+			if shoe.power == Game.ShoePower.CRATER:
+				draw_set_transform(shoe.at, 0.0, Vector2.ONE * shoe.scale_factor)
+				_outline(self, _crater_rim, Color(CRATER_COLOR, 0.5 + progress * 0.25), 1.5)
+				draw_set_transform(Vector2.ZERO)
 			if progress > 0.78:
 				var drop := pow(1.0 - (progress - 0.78) / 0.22, 1.5)
 				_draw_shoe(shoe.at - Vector2(0, 410 * drop), 0.0, 1.0 + 0.36 * drop, shoe.scale_factor)
@@ -300,8 +315,8 @@ func _draw_shoe_pickup() -> void:
 			for side in [-1.0, 1.0]:
 				draw_polyline(PackedVector2Array([Vector2(side * 6, -6), Vector2(side * 13, 0),
 					Vector2(side * 6, 6)]), accent, 2.5, true)
-		Game.ShoePower.DENIAL:
-			_draw_barrier_icon(accent)
+		Game.ShoePower.CRATER:
+			_draw_crater_icon(accent)
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -312,24 +327,51 @@ static func shoe_power_color(kind: Game.ShoePower) -> Color:
 		Game.ShoePower.WIDE:
 			return WIDE_COLOR
 		_:
-			return DENIAL_COLOR
+			return CRATER_COLOR
 
 
-func _draw_barrier_icon(accent: Color) -> void:
-	draw_circle(Vector2.ZERO, 11.0, accent, false, 2.4, true)
-	draw_line(Vector2(-8, 8), Vector2(8, -8), accent, 2.6, true)
+func _draw_crater_icon(accent: Color) -> void:
+	draw_polyline(PackedVector2Array([Vector2(-14, -4), Vector2(-8, -7), Vector2(0, -5),
+		Vector2(8, -7), Vector2(14, -4)]), accent, 2.2, true)
+	draw_polyline(PackedVector2Array([Vector2(-14, 0), Vector2(-8, 0), Vector2(-4, 7),
+		Vector2(4, 7), Vector2(8, 0), Vector2(14, 0)]), accent, 2.2, true)
 
 
-func _draw_denial_terrain(at: Vector2, scale_factor: float, remaining: float) -> void:
+func _make_crater_floor() -> PackedVector2Array:
+	var floor_points := PackedVector2Array()
+	for point in _crater_rim:
+		floor_points.append(point * Vector2(0.72, 0.83) + Vector2(0, 5))
+	return floor_points
+
+
+func _draw_crater(at: Vector2, scale_factor: float, remaining: float) -> void:
 	var fade := clampf(remaining / 0.9, 0.0, 1.0)
 	draw_set_transform(at, 0.0, Vector2.ONE * scale_factor)
-	draw_colored_polygon(_sole, Color(0.16, 0.22, 0.14, 0.82 * fade))
-	for index in 7:
-		var y := -77.0 + index * 24.0
-		draw_line(Vector2(-24, y + 14), Vector2(24, y - 14), Color(0.65, 0.78, 0.42, 0.33 * fade), 5.0, true)
-	var accent := Color(DENIAL_COLOR, fade)
-	_outline(self, _sole, accent, 3.4)
-	_draw_barrier_icon(accent)
+	_outline(self, _crater_rim, Color("3e3025", fade * 0.59), 8.0)
+	draw_colored_polygon(_crater_floor, Color(CRATER_FLOOR, fade))
+	for index in _crater_rim.size():
+		var next := (index + 1) % _crater_rim.size()
+		var a := _crater_rim[index]
+		var b := _crater_rim[next]
+		var light := clampf(0.54 - (a + b).normalized().dot(Vector2(-0.32, -0.90)) * 0.37, 0.0, 1.0)
+		var shade := CRATER_WALL_DARK.lerp(CRATER_WALL_LIGHT, light)
+		var edge := CRATER_EDGE_DARK.lerp(CRATER_EDGE_LIGHT, 1.0 - light)
+		draw_colored_polygon(PackedVector2Array([a, b, _crater_floor[next], _crater_floor[index]]), Color(shade, fade))
+		draw_line(a, b, Color(edge, fade), 3.0 + float(index % 3), true)
+	for index in CRATER_STONES.size():
+		var stone: Vector2 = CRATER_STONES[index]
+		draw_circle(stone + Vector2(1, 2), 3.0, Color("382820", fade * 0.75), true, -1.0, true)
+		draw_circle(stone, 2.0 + float(index % 2), Color("b48258", fade * 0.74), true, -1.0, true)
+	draw_polyline(PackedVector2Array([Vector2(-14, -48), Vector2(-5, -29), Vector2(-11, -5),
+		Vector2(4, 14), Vector2(1, 35), Vector2(14, 50)]), Color("382820", fade * 0.67), 1.8, true)
+	var age := Game.CRATER_DURATION - remaining
+	if age < 0.50:
+		var dust := 1.0 - age / 0.50
+		for index in range(0, _crater_rim.size(), 2):
+			var edge := _crater_rim[index]
+			var puff := edge + edge.normalized() * (age * 51.0 + 5.0)
+			draw_circle(puff - Vector2(0, 13.0 * sin(age * TAU)), 3.0 + age * 9.0,
+				Color("d6a477", dust * 0.58), true, -1.0, true)
 	draw_set_transform(Vector2.ZERO)
 
 

@@ -10,7 +10,7 @@ const RUN_SPEED := 300.0
 const BODY_RADIUS := 10.0
 const SHOE_SCALE := 1.5
 const WIDE_SCALE := 1.30
-const DENIAL_DURATION := 8.0
+const CRATER_DURATION := 8.0
 const SHOE_PICKUP_RADIUS := 29.0
 const SHOE_PICKUP_INTERVAL := 5.0
 const SPIDER_SPAWN := Vector2(245, 493)
@@ -65,7 +65,7 @@ enum Step { WAITING, WARNING, LANDED }
 enum Loss { NONE, SHOE, SPIDER, METEOR }
 enum YardEvent { NONE, METEORS, SPIDER_RUSH, WIND_GUST }
 enum Power { NONE, SPEED, SHIELD }
-enum ShoePower { NONE, QUICK, WIDE, DENIAL }
+enum ShoePower { NONE, QUICK, WIDE, CRATER }
 
 const YARD_EVENTS: Array[YardEvent] = [YardEvent.METEORS, YardEvent.SPIDER_RUSH, YardEvent.WIND_GUST]
 
@@ -787,6 +787,15 @@ static func footprint(center: Vector2, angle: float, scale_factor: float) -> Pac
 	var points := PackedVector2Array()
 	for point: Vector2 in SOLE:
 		points.append(center + (point * scale_factor).rotated(angle))
+	return points
+
+
+static func crater_rim(center := Vector2.ZERO, scale_factor := 1.0) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in SOLE.size():
+		var edge: Vector2 = SOLE[index]
+		var rubble := 9.0 if index % 3 == 0 else 5.0
+		points.append(center + (edge + edge.normalized() * rubble) * scale_factor)
 	return points
 
 

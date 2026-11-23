@@ -32,10 +32,11 @@ class Shoe:
 	var scale_factor := 1.5
 	var charge := 0
 	var power := 0
-	var terrain_at := Vector2.ZERO
-	var terrain_scale := 1.5
-	var terrain_time := 0.0
-	var terrain := PackedVector2Array()
+	var crater_at := Vector2.ZERO
+	var crater_scale := 1.5
+	var crater_time := 0.0
+	var crater_wall := PackedVector2Array()
+	var crater_exits: Dictionary = {}
 	var landing := PackedVector2Array()
 
 var game
@@ -110,7 +111,7 @@ func jump(id: int, direction: Vector2) -> void:
 
 func tick(delta: float) -> void:
 	for shoe: Shoe in shoes.values():
-		shoe.terrain_time = maxf(0.0, shoe.terrain_time - delta)
+		shoe.crater_time = maxf(0.0, shoe.crater_time - delta)
 	for ant: Runner in runners.values():
 		_move_runner(ant, delta)
 	_update_ant_pickup(delta)
@@ -159,8 +160,13 @@ func _move_runner(ant: Runner, delta: float) -> void:
 		var destination := (ant.at + velocity * delta).clamp(game.RUN_BOUNDS.position, game.RUN_BOUNDS.end)
 		var obstacles: Array[PackedVector2Array] = []
 		for shoe: Shoe in shoes.values():
-			if shoe.terrain_time > 0.0 and not Geometry2D.is_point_in_polygon(ant.at, shoe.terrain):
-				obstacles.append(shoe.terrain)
+			if shoe.crater_time <= 0.0:
+				continue
+			if shoe.crater_exits.has(ant.id):
+				if not ant.zombie and Geometry2D.is_point_in_polygon(ant.at, shoe.crater_wall):
+					continue
+				shoe.crater_exits.erase(ant.id)
+			obstacles.append(shoe.crater_wall)
 		ant.at = game.move_around_terrain(ant.at, destination, obstacles)
 	if not direction.is_zero_approx():
 		ant.angle = lerp_angle(ant.angle, direction.angle(), minf(1.0, delta * 18.0))
@@ -198,7 +204,7 @@ func _update_shoe_pickup(delta: float) -> void:
 			game.shoe_pickup_position = Vector2(game._rng.randf_range(area.position.x, area.end.x),
 				game._rng.randf_range(area.position.y, area.end.y))
 			game.shoe_pickup = _next_shoe_pickup
-			_next_shoe_pickup = game.ShoePower.QUICK if _next_shoe_pickup == game.ShoePower.DENIAL else _next_shoe_pickup + 1
+			_next_shoe_pickup = game.ShoePower.QUICK if _next_shoe_pickup == game.ShoePower.CRATER else _next_shoe_pickup + 1
 			return
 
 
@@ -244,17 +250,23 @@ func _tick_shoe(shoe: Shoe, delta: float) -> void:
 		shoe.landed = 0.5
 		shoe.remaining = shoe.landed
 		_play(&"impact")
-		if shoe.power == game.ShoePower.DENIAL:
-			shoe.terrain_at = shoe.at
-			shoe.terrain_scale = shoe.scale_factor
-			shoe.terrain_time = game.DENIAL_DURATION
-			var outlines := Geometry2D.offset_polygon(shoe.landing, game.BODY_RADIUS, Geometry2D.JOIN_ROUND)
-			shoe.terrain = shoe.landing.duplicate() if outlines.is_empty() else outlines[0]
+		var makes_crater: bool = shoe.power == game.ShoePower.CRATER
+		if makes_crater:
+			shoe.crater_at = shoe.at
+			shoe.crater_scale = shoe.scale_factor
+			shoe.crater_time = game.CRATER_DURATION
+			var rim: PackedVector2Array = game.crater_rim(shoe.crater_at, shoe.crater_scale)
+			var outlines := Geometry2D.offset_polygon(rim, game.BODY_RADIUS, Geometry2D.JOIN_ROUND)
+			shoe.crater_wall = rim if outlines.is_empty() else outlines[0]
+			shoe.crater_exits.clear()
 		var hit := false
 		for ant: Runner in runners.values():
+			var protected := ant.shield > 0.0 or ant.grace > 0.0
 			if not ant.zombie and ant.jump <= 0.0 and game.ant_in_footprint(ant.at, shoe.landing):
 				hit = true
 				_hit(ant, &"impact")
+			if makes_crater and protected and not ant.zombie and Geometry2D.is_point_in_polygon(ant.at, shoe.crater_wall):
+				shoe.crater_exits[ant.id] = true
 		if not hit:
 			game.score += 1
 	elif shoe.step == game.Step.LANDED:
@@ -297,7 +309,7 @@ func snapshot() -> Array:
 	var shoe_data := []
 	for shoe: Shoe in shoes.values():
 		shoe_data.append([shoe.id, shoe.step, shoe.at, shoe.remaining, shoe.warning, shoe.landed,
-			shoe.impact, shoe.scale_factor, shoe.charge, shoe.power, shoe.terrain_at, shoe.terrain_scale, shoe.terrain_time])
+			shoe.impact, shoe.scale_factor, shoe.charge, shoe.power, shoe.crater_at, shoe.crater_scale, shoe.crater_time])
 	return [runner_data, shoe_data, cue_serial, cue]
 
 
@@ -329,9 +341,9 @@ func apply_snapshot(data: Array) -> void:
 		shoe.scale_factor = item[7]
 		shoe.charge = item[8]
 		shoe.power = item[9]
-		shoe.terrain_at = item[10]
-		shoe.terrain_scale = item[11]
-		shoe.terrain_time = item[12]
+		shoe.crater_at = item[10]
+		shoe.crater_scale = item[11]
+		shoe.crater_time = item[12]
 	if cue_serial != data[2]:
 		cue_serial = data[2]
 		game._sound.play_cue(data[3])

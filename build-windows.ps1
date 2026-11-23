@@ -215,8 +215,9 @@ Shoes aim with the mouse and left-click to stomp. A caught ant becomes a
 green zombie ant. Use WASD or the arrow keys to chase and touch live ants.
 The round ends when the last live ant turns. The host can reopen the lobby.
 The shoe player can click a diamond to power the next stomp. The orange clock
-makes it land faster and the purple arrows make it wider. The green Area
-Denial pickup blocks the stomp's footprint for eight seconds.
+makes it land faster and the purple arrows make it wider. The gold Crater
+Stomp leaves a dirt rim for eight seconds. It blocks ants from crossing or
+jumping over it. A shielded survivor inside can climb out once.
 If Windows Firewall asks, allow the game on private networks (UDP port 24567).
 
 The executable contains the game data. See GODOT-NOTICES.txt for engine licenses.

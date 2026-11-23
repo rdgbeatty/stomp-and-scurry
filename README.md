@@ -50,7 +50,7 @@ Run over a pickup to collect it. The yellow lightning bolt speeds up the ant for
 
 Press **Space** to jump in the direction you're moving, or straight ahead when standing still. The ant can dodge the shoe and spider while airborne. After landing, it moves at 60% speed for 1.7 seconds and can jump again once it recovers.
 
-In LAN play, the shoe player clicks diamond pickups to charge the next stomp. The orange clock makes the warning 0.6 seconds instead of 0.9. The purple arrows make the shoe and its shadow 30% wider and longer. The green Area Denial pickup turns the next stomp's footprint into terrain the ant cannot enter for eight seconds. It also blocks jumping across. If the ant survives the stomp inside the footprint, it can leave once. The next stomp uses the charge automatically.
+In LAN play, the shoe player clicks diamond pickups to charge the next stomp. The orange clock makes the warning 0.6 seconds instead of 0.9. The purple arrows make the shoe and its shadow 30% wider and longer. The gold Crater Stomp leaves a dirt crater for eight seconds. Ants cannot cross or jump over the rim. An ant that survives inside with shield protection can climb out once. The next stomp uses the charge automatically.
 
 ## Random events
 

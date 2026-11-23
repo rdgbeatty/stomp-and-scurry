@@ -1,7 +1,7 @@
 extends Node
 
 const PORT := 24567
-const BUILD_PROTOCOL := "stomp-and-scurry-four-player-2"
+const BUILD_PROTOCOL := "stomp-and-scurry-four-player-3"
 
 enum Role { SOLO, HOST, GUEST }
 enum Choice { NONE, ANT, SHOE }
